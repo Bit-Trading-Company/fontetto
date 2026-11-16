@@ -9,8 +9,8 @@ const HELP = `fontetto ${VERSION} — fonts for design agents
 
 Usage
   fontetto search [words] [options]   Find fonts (by name words, category, licence, author, tags)
-  fontetto info <font>                Everything the provider knows: licence, styles, author note…
-  fontetto preview <font>… [-t text]  Save preview PNGs (optionally of your own text) to look at
+  fontetto info <font>… [--files]     Licence, styles, author note… --files adds what the files can set
+  fontetto preview <font>… [-t text]  One numbered contact sheet (PNG) of the fonts, in your own text
   fontetto get <font>… [-o dir]       Download, unpack, and write font-face.css (default dir: ./fonts)
   fontetto categories                 The category tree (names and ids for --category)
   fontetto tag <font> <tag>… [-r tag] Add (or remove with -r) your own tags
@@ -26,6 +26,7 @@ Search options
   -n, --limit <n>      Results to show (default 10, max 200)
   -p, --page <n>       Page of the underlying listing
       --author <h>     Author handle from a result, e.g. dharma-type.d2733
+      --any            Match ANY of the words (or comma-separated phrases), merged into one list
       --tag <t>        Search your own tags (repeatable; all must match)
       --accents        Only fonts with accented characters
       --euro           Only fonts with the € sign
@@ -33,9 +34,11 @@ Search options
 Other options
   -t, --text <text>    Preview text (preview)
       --size <s>       Preview size: xs · s · m · l (default l)
-      --styles <n>     Preview the first n styles (default 1)
+      --styles <n>     Preview the first n styles of each font (default 1)
+      --separate       Also save one PNG per preview
   -o, --out <dir>      Where to put fonts (get) or previews (preview)
       --full           Show the full author note (info)
+      --files          Also read the font files (info): case, digits, scripts, family — no install
       --json           Machine-readable output
   -v, --version
   -h, --help
@@ -48,6 +51,7 @@ Environment
 Examples
   fontetto search -c handwritten -l commercial -n 5
   fontetto search retro --license commercial
+  fontetto search script cursive handwriting -c pixel --any
   fontetto preview bebas-neue coolvetica -t "Acme Coffee"
   fontetto get bebas-neue -o public/fonts`;
 
@@ -87,6 +91,7 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
       page: { type: 'string', short: 'p' },
       author: { type: 'string' },
       tag: { type: 'string', multiple: true },
+      any: { type: 'boolean' },
       accents: { type: 'boolean' },
       euro: { type: 'boolean' },
       provider: { type: 'string' },
@@ -96,6 +101,8 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
       out: { type: 'string', short: 'o' },
       remove: { type: 'string', short: 'r', multiple: true },
       full: { type: 'boolean' },
+      separate: { type: 'boolean' },
+      files: { type: 'boolean' },
       json: { type: 'boolean' },
       version: { type: 'boolean', short: 'v' },
       help: { type: 'boolean', short: 'h' },
@@ -124,6 +131,7 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
         page: int(o.page, 'page'),
         author: o.author,
         tags: o.tag,
+        any: o.any,
         accents: o.accents,
         euro: o.euro,
       });
@@ -131,18 +139,16 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
     }
     case 'info':
     case 'i': {
-      const fonts = await Promise.all(needFont().map((ref) => fontetto.info(ref)));
+      const fonts: (fontetto.Font & { contents?: fontetto.FileReport })[] = [];
+      for (const ref of needFont()) fonts.push(await (o.files ? fontetto.inspect(ref) : fontetto.info(ref)));
       return print(fonts.length === 1 ? fonts[0] : fonts, () => fonts.map((f) => formatInfo(f, { full: o.full })).join('\n\n'));
     }
     case 'preview':
     case 'p': {
       const size = o.size as 'xs' | 's' | 'm' | 'l' | undefined;
       if (size && !['xs', 's', 'm', 'l'].includes(size)) throw new Error('--size must be xs, s, m or l');
-      const results: fontetto.PreviewResult[] = [];
-      for (const ref of needFont()) {
-        results.push(await fontetto.preview(ref, { text: o.text, size, styles: int(o.styles, 'styles'), dir: o.out }));
-      }
-      return print(results, () => results.map(formatPreview).join('\n'));
+      const result = await fontetto.preview(needFont(), { text: o.text, size, styles: int(o.styles, 'styles'), dir: o.out, separate: o.separate });
+      return print(result, () => formatPreview(result));
     }
     case 'get':
     case 'g': {

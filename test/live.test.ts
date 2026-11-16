@@ -24,8 +24,9 @@ test('live: browse, search, inspect, preview, install', { skip: !live && 'set FO
   assert.equal(font.license.kind, 'open');
   assert.ok(font.styles.length >= 1);
 
-  const shot = await preview('bebas-neue', { text: 'Fontetto' });
-  assert.ok(fs.statSync(shot.images[0]!.path).size > 100);
+  const shot = await preview(['bebas-neue', 'coolvetica'], { text: 'Fontetto' });
+  assert.equal(shot.rows.length, 2);
+  assert.ok(fs.statSync(shot.sheet!).size > 100);
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fontetto-live-get-'));
   const got = await get('bebas-neue', { dir });

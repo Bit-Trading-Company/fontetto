@@ -7,6 +7,7 @@ import { buildFaces } from '../src/lib/faces.ts';
 import { decodeEntities, toText } from '../src/lib/html.ts';
 import { commercialLabel, licenseKinds } from '../src/lib/license.ts';
 import { readFontFile, weightFromName } from '../src/lib/sfnt.ts';
+import { describeTraits, mergeTraits } from '../src/lib/traits.ts';
 import { unzip } from '../src/lib/zip.ts';
 import { CATEGORIES } from '../src/providers/dafont/categories.ts';
 import { applyTags, tagCounts, withTags, type TagStore } from '../src/tags.ts';
@@ -34,6 +35,10 @@ describe('sfnt', () => {
       { family: 'Acme', subfamily: 'Bold Italic', weight: 700, italic: true, stretch: 'condensed', glyphs: 321, license: 'OFL' },
     );
   });
+  test('fixed pitch', () => {
+    assert.equal(readFontFile(makeFont({ family: 'Code', monospace: true }))?.monospace, true);
+    assert.equal(readFontFile(makeFont({ family: 'Prose' }))?.monospace, false);
+  });
   test('legacy 1–9 weights and nonsense weights', () => {
     assert.equal(readFontFile(makeFont({ family: 'A', weight: 7 }))?.weight, 700);
     assert.equal(readFontFile(makeFont({ family: 'A', subfamily: 'Light', weight: 0 }))?.weight, 300);
@@ -47,7 +52,7 @@ describe('sfnt', () => {
 });
 
 describe('faces', () => {
-  const info = (o: Partial<ReturnType<typeof readFontFile>> & { family: string }) => ({ subfamily: 'Regular', weight: 400, italic: false, stretch: 'normal', ...o });
+  const info = (o: Partial<ReturnType<typeof readFontFile>> & { family: string }) => ({ subfamily: 'Regular', weight: 400, italic: false, stretch: 'normal', monospace: false, ...o });
 
   test('one face per stem, best web format first', () => {
     const faces = buildFaces(
@@ -81,7 +86,7 @@ describe('faces', () => {
   });
 
   test('CSS', () => {
-    const css = fontFace({ family: "O'Brien", fileFamily: "O'Brien", subfamily: 'Italic', weight: 300, italic: true, stretch: 'condensed', files: ['out/a b.woff2', 'out/a b.ttf'] }, 'out');
+    const css = fontFace({ family: "O'Brien", fileFamily: "O'Brien", subfamily: 'Italic', weight: 300, italic: true, stretch: 'condensed', monospace: false, files: ['out/a b.woff2', 'out/a b.ttf'] }, 'out');
     assert.match(css, /font-family: 'O\\'Brien';/);
     assert.match(css, /url\('a%20b\.woff2'\) format\('woff2'\),\s+url\('a%20b\.ttf'\) format\('truetype'\);/);
     assert.match(css, /font-weight: 300;\s+font-style: italic;\s+font-stretch: condensed;/);
@@ -128,6 +133,16 @@ test('generic fallbacks', () => {
   assert.equal(f('502'), 'serif');
   assert.equal(f('501'), 'sans-serif');
   assert.equal(f('503'), 'monospace');
+
+  // Bitmap and other mixed categories: the files and the name decide.
+  const bitmap = CATEGORIES.find((c) => c.id === 'bitmap');
+  assert.equal(genericFallback(bitmap, { name: 'Minecraft' }), 'sans-serif');
+  assert.equal(genericFallback(bitmap, { name: 'VCR OSD Mono' }), 'monospace');
+  assert.equal(genericFallback(bitmap, { name: 'Anything', monospace: true }), 'monospace');
+  assert.equal(genericFallback(bitmap, { name: 'Cursive' }), 'cursive');
+  assert.equal(genericFallback(bitmap, { name: 'PixelScript' }), 'cursive');
+  assert.equal(genericFallback(bitmap, { name: 'Monolithic' }), 'sans-serif', 'whole words only');
+  assert.equal(genericFallback(CATEGORIES.find((c) => c.id === '501'), { name: 'Acme Sans Serif' }), 'sans-serif');
 });
 
 test('tags', () => {
@@ -148,4 +163,24 @@ test('every category the skill recommends resolves', async () => {
   const words = cells.flatMap((c) => [...c.matchAll(/`([^`]+)`/g)].map((m) => m[1]!)).filter((w) => w !== '-c');
   assert.ok(words.length > 30);
   for (const w of words) assert.doesNotThrow(() => resolveCategory(CATEGORIES, w), w);
+});
+
+describe('traits', () => {
+  const traits = (chars: Parameters<typeof makeFont>[0]['chars']) => readFontFile(makeFont({ family: 'T', chars }))!.traits!;
+
+  test('real lowercase', () => {
+    assert.deepEqual(traits({}), { case: 'mixed', digits: true, scripts: ['latin'], symbol: false });
+  });
+  test('lowercase slots drawn as capitals (by height)', () => assert.equal(traits({ lower: 'capitals' }).case, 'no-lowercase'));
+  test('lowercase slots pointing at the capital glyphs', () => assert.equal(traits({ lower: 'same-glyphs' }).case, 'no-lowercase'));
+  test('no lowercase at all', () => assert.equal(traits({ lower: 'none' }).case, 'no-lowercase'));
+  test('digits and scripts', () => {
+    const t = traits({ digits: false, extra: [0xe9, 0xe8, 0xfc, 0xf6, 0xf1, 0xe7, 0xe0, 0xdf, 0x410, 0x411, 0x416, 0x42f, 0x430, 0x431, 0x905, 0x915, 0x92e, 0x93f] });
+    assert.equal(t.digits, false);
+    assert.deepEqual(t.scripts, ['latin', 'latin-1', 'cyrillic', 'devanagari']);
+  });
+  test('family merge and description', () => {
+    const merged = mergeTraits([traits({ lower: 'capitals', digits: false }), traits({ lower: 'capitals', extra: [0x410, 0x411, 0x416, 0x42f, 0x430, 0x431, 0x44f] })])!;
+    assert.equal(describeTraits(merged, true), 'NO LOWERCASE · monospace · latin, cyrillic');
+  });
 });

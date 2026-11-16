@@ -11,7 +11,7 @@ import type { LicenseFilter, Sort } from './types.ts';
 import { VERSION } from './version.ts';
 
 const INSTRUCTIONS = `fontetto finds and installs fonts from third-party providers (dafont.com today).
-Workflow: search_fonts (by category, words, licence) → preview_font to look at candidates with the real copy → get_font to download and receive @font-face CSS.
+Workflow: search_fonts (by category, words, licence) → optionally preview_fonts to compare candidates in one image → get_font to download and receive @font-face CSS.
 Licence matters: pass license "commercial" for client/commercial work, and read the author note (font_info) whenever the licence shows "?".`;
 
 type Args = Record<string, unknown>;
@@ -35,6 +35,7 @@ const TOOLS: Tool[] = [
       type: 'object',
       properties: {
         text: { ...str, description: 'Words in the font name, e.g. "retro"' },
+        any: { type: 'boolean', description: 'Match ANY of the words in text (or comma-separated phrases), merged into one list — one call instead of one per word' },
         category: { ...str, description: 'Name, path or id: "handwritten", "script/brush", "techno", "603" (see list_categories)' },
         license: { ...str, description: '"commercial" (open + 100% free), "open", or comma-separated kinds: open,free,personal,donationware,shareware,demo' },
         sort: { type: 'string', enum: ['popular', 'newest', 'name'] },
@@ -50,7 +51,7 @@ const TOOLS: Tool[] = [
         ? (['commercial', 'open'].includes(a.license) ? a.license : a.license.split(',')) as LicenseFilter
         : undefined;
       const r = await fontetto.search({
-        text: a.text as string, category: a.category as string, license, sort: a.sort as Sort,
+        text: a.text as string, any: Boolean(a.any), category: a.category as string, license, sort: a.sort as Sort,
         limit: a.limit as number, page: a.page as number, author: a.author as string, tags: a.tags as string[],
       });
       return text(formatSearch(r));
@@ -58,29 +59,31 @@ const TOOLS: Tool[] = [
   },
   {
     name: 'font_info',
-    description: 'Everything the provider knows about a font: licence and the author\'s note (often the real terms), styles, glyph count, dates, preview URL.',
-    inputSchema: { type: 'object', properties: { font, full: { type: 'boolean', description: 'Full author note' } }, required: ['font'] },
+    description: 'Everything the provider knows about a font: licence and the author\'s note (often the real terms), styles, glyph count, dates. With files: true, also what the font files can set (NO LOWERCASE, digits, scripts, monospace, CSS family) — often enough to skip a preview.',
+    inputSchema: { type: 'object', properties: { font, files: { type: 'boolean', description: 'Also read the font files (downloads to cache, installs nothing)' }, full: { type: 'boolean', description: 'Full author note' } }, required: ['font'] },
     annotations: { readOnlyHint: true, openWorldHint: true },
     async run(a) {
-      return text(formatInfo(await fontetto.info(a.font as string), { full: Boolean(a.full) }));
+      const font = a.files ? await fontetto.inspect(a.font as string) : await fontetto.info(a.font as string);
+      return text(formatInfo(font, { full: Boolean(a.full) }));
     },
   },
   {
-    name: 'preview_font',
-    description: 'Render a font with your own text and return the image(s), so you can judge it visually. Also saved as PNG files.',
+    name: 'preview_fonts',
+    description: 'Render one or more fonts in your own text as ONE numbered contact sheet image, to compare candidates at a glance. Optional: skip it when the text signals already decide.',
     inputSchema: {
       type: 'object',
       properties: {
-        font,
+        fonts: { type: 'array', items: font, minItems: 1, maxItems: 12, description: 'Fonts to compare (slugs, "dafont:<slug>" or URLs)' },
         text: { ...str, description: 'Text to render, e.g. the brand name or headline (max 80 chars)' },
-        styles: { type: 'integer', minimum: 1, maximum: 10, default: 1, description: 'How many styles to render' },
+        styles: { type: 'integer', minimum: 1, maximum: 10, default: 1, description: 'Styles per font' },
       },
-      required: ['font'],
+      required: ['fonts'],
     },
     annotations: { readOnlyHint: true, openWorldHint: true },
     async run(a) {
-      const r = await fontetto.preview(a.font as string, { text: a.text as string, styles: a.styles as number });
-      const images = await Promise.all(r.images.map(async (i) => ({ type: 'image', mimeType: 'image/png', data: (await fs.readFile(i.path)).toString('base64') })));
+      const r = await fontetto.preview(a.fonts as string[], { text: a.text as string, styles: a.styles as number });
+      const files = r.sheet ? [r.sheet] : (r.images ?? []);
+      const images = await Promise.all(files.map(async (f) => ({ type: 'image', mimeType: 'image/png', data: (await fs.readFile(f)).toString('base64') })));
       return [...text(formatPreview(r)), ...images];
     },
   },

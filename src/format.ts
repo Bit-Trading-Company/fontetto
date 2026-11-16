@@ -4,9 +4,10 @@
  * everything else.
  */
 import path from 'node:path';
-import type { GetResult, PreviewResult } from './fontetto.ts';
+import type { FileReport, GetResult, PreviewResult } from './fontetto.ts';
 import { cssFamily } from './lib/css.ts';
 import { commercialLabel } from './lib/license.ts';
+import { describeTraits } from './lib/traits.ts';
 import type { Category, Font, FontSummary, License, SearchResult } from './types.ts';
 
 export function compact(n: number): string {
@@ -42,13 +43,24 @@ export function formatSearch(r: SearchResult): string {
   ].join('\n');
 }
 
-export function formatInfo(f: Font, { full = false } = {}): string {
+/** The decision-relevant facts the font files add (`info --files`, `get`). */
+function contentRows(c: FileReport): [string, string | undefined][] {
+  return [
+    ['reads', c.traits && describeTraits(c.traits, c.monospace)],
+    ['family', `font-family: ${c.families.map(cssFamily).join(' / ')}, ${c.fallback}`],
+    ['faces', c.faces.map((f) => [f.weight, f.italic && 'italic', f.stretch !== 'normal' && f.stretch].filter(Boolean).join(' ')).join(', ')],
+    ['embedded', c.embeddedLicense && [c.embeddedLicense.url, c.embeddedLicense.text?.slice(0, 120)].filter(Boolean).join(' — ')],
+  ];
+}
+
+export function formatInfo(f: Font & { contents?: FileReport }, { full = false } = {}): string {
   const rows: [string, string | undefined][] = [
     ['by', f.author && [f.author.name, f.author.website, f.author.handle && `more: --author ${f.author.handle}`].filter(Boolean).join(' · ')],
     ['category', f.category?.path.join(' > ')],
     ['licence', `${f.license.label} — ${commercialLabel(f.license)}${f.license.commercial === null && f.note ? ' (see note)' : ''}`],
+    ...(f.contents ? contentRows(f.contents) : []),
     ['stats', f.downloads && [`${compact(f.downloads.total)} downloads (${compact(f.downloads.yesterday)} yesterday)`, f.added && `added ${f.added}`, f.updated && `updated ${f.updated}`].filter(Boolean).join(' · ')],
-    ['files', [`${f.styles.length || f.files} styles`, f.glyphs && `${f.glyphs} glyphs`, f.charset?.accents && 'accents', f.charset?.euro && 'euro', f.sizeKB && `${f.sizeKB} KB`, f.pixelSize && `bitmap: use at ${f.pixelSize}px multiples, no anti-aliasing`].filter(Boolean).join(' · ')],
+    ['files', [`${f.styles.length || f.files} style${(f.styles.length || f.files) === 1 ? '' : 's'}`, f.glyphs && `${f.glyphs} glyphs`, f.charset?.accents && 'accents', f.charset?.euro && 'euro', f.sizeKB && `${f.sizeKB} KB`, f.pixelSize && `bitmap: use at ${f.pixelSize}px multiples, no anti-aliasing`].filter(Boolean).join(' · ')],
     ['styles', f.styles.map((s) => s.file).filter(Boolean).join(', ')],
     ['tags', f.tags?.join(', ')],
     ['preview', f.preview],
@@ -67,7 +79,9 @@ export function formatGet(r: GetResult): string {
   const lines = [
     `${r.font.name} → ${rel(r.dir)}`,
     `css      ${rel(r.css)}`,
-    `use      font-family: ${cssFamily(r.families[0]!)}, ${r.fallback};`,
+    `link     ${r.snippet.link}`,
+    `use      ${r.snippet.rule}`,
+    ...(r.traits ? [`reads    ${describeTraits(r.traits, r.monospace)}`] : []),
     `licence  ${r.font.license.label} — ${commercialLabel(r.font.license)}${r.font.license.commercial === null ? ` (read the note: fontetto info ${r.font.slug})` : ''}`,
   ];
   if (r.embeddedLicense?.url || r.embeddedLicense?.text) {
@@ -79,11 +93,18 @@ export function formatGet(r: GetResult): string {
     lines.push(`  ${cssFamily(f.family)} ${style}  ← ${f.files.map((p) => path.basename(p)).join(', ')}`);
   }
   if (r.docs.length) lines.push(`docs     ${r.docs.map(rel).join(', ')}`);
+  lines.push('note     serve the page over http(s) — data: URLs cannot load font files');
   return lines.join('\n');
 }
 
 export function formatPreview(r: PreviewResult): string {
-  return [`${r.font.name} (${r.font.id})`, ...r.images.map((i) => `${i.path}  ${i.style}`)].join('\n');
+  const multi = new Set(r.rows.map((row) => row.id)).size < r.rows.length;
+  const width = Math.max(...r.rows.map((row) => row.id.length));
+  return [
+    r.sheet ? `sheet  ${r.sheet}` : '(could not build a sheet; separate images below)',
+    ...r.rows.map((row) => `${String(row.n).padStart(2)}  ${row.id.padEnd(width)}  ${row.name}${multi ? ` · ${row.style}` : ''} · ${row.license.kind} ${mark(row.license)}`),
+    ...(r.images ?? []).map((p, i) => `${String(i + 1).padStart(2)}  ${p}`),
+  ].join('\n');
 }
 
 export function formatCategories(categories: Category[]): string {

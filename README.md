@@ -16,14 +16,23 @@ edo-sz        Edo SZ — Vic Fieger · Script > Brush · free ✓ · 4.4M dl · 
 ninja-naruto  Ninja Naruto — sk89q · Script > Brush · free ✓ · 2.5M dl
 hey-august    Hey August — Khurasan™ · Script > Brush · free ✓ · 1.6M dl · 2 files · accents
 
-$ fontetto preview edo-sz brusher -t "Acme Coffee Co."     # PNGs the agent can look at
+$ fontetto info edo-sz --files          # what the font files can set — often enough to decide
+reads    NO LOWERCASE · latin, latin-1
+family   font-family: 'Edo SZ', cursive
+…
+
+$ fontetto preview edo-sz brusher anak-bocil -t "Acme Coffee Co."   # only when looks decide: ONE numbered sheet
+
 $ fontetto get edo-sz -o public/fonts
 Edo SZ → ./public/fonts/edo-sz
 css      ./public/fonts/edo-sz/font-face.css
+link     <link rel="stylesheet" href="public/fonts/edo-sz/font-face.css">
 use      font-family: 'Edo SZ', cursive;
+reads    NO LOWERCASE · latin, latin-1
 licence  100% Free — commercial ok
 faces
   'Edo SZ' 400 normal  ← edosz.ttf
+note     serve the page over http(s) — data: URLs cannot load font files
 ```
 
 ## Why a skill (and not just an MCP server)
@@ -32,11 +41,25 @@ Agent context is the scarce resource, so fontetto ships as a **skill + CLI** fir
 
 | | Idle cost in every conversation | Cost when used |
 | --- | --- | --- |
-| **Skill** (recommended) | ~120 tokens (its one-line description) | ~1.3k tokens to load the workflow, then compact CLI output |
+| **Skill** (recommended) | ~120 tokens (its one-line description) | ~1.5k tokens to load the workflow, then compact CLI output |
 | MCP server | ~850 tokens of tool schemas, always | Same compact output |
 
-And the output itself is built for agents: one line per font with the fields that drive a decision
-(licence first-class), ~8× smaller than the same results as JSON. `--json` is there when a program wants it.
+The commands are shaped to keep both tool calls and tokens down:
+
+- **Compact output.** One line per font with the fields that drive a decision (licence first-class), ~8× smaller
+  than the same results as JSON. `--json` is there when a program wants it.
+- **Text before pixels.** `info --files` reads the font files themselves and reports what previews would
+  otherwise reveal: `NO LOWERCASE` (capitals or unicase — wrong for body text), missing digits, monospace,
+  and the scripts actually covered (Latin-1, Cyrillic, Devanagari…). Previews become optional.
+- **One look, not one per font.** `preview a b c` renders every candidate in your copy into a single
+  numbered contact sheet.
+- **One search, many words.** `search script cursive handwriting --any` merges and de-duplicates the matches.
+- **Paste-ready install.** `get` prints the `<link>` tag and the `font-family` rule (with the native pixel size
+  for bitmap fonts).
+
+Measured on the same request (a letter with a Hindi-style heading, a monospace bitmap body and an 8-bit
+cursive signature): the font hunt went from 9 searches and 11 image reads to 3 searches, one `info --files` and
+one `get` — with no images needed at all.
 
 The MCP server is still included for agents that speak MCP but not skills — same core, same output.
 
@@ -65,16 +88,17 @@ claude mcp add fontetto -- npx -y github:Bit-Trading-Company/fontetto mcp
 { "mcpServers": { "fontetto": { "command": "npx", "args": ["-y", "github:Bit-Trading-Company/fontetto", "mcp"] } } }
 ```
 
-Tools: `search_fonts`, `font_info`, `preview_font` (returns the images), `get_font`, `list_categories`, `tag_font`.
+Tools: `search_fonts` (`any` for several words), `font_info` (`files` for case/scripts/digits), `preview_fonts`
+(returns one contact-sheet image), `get_font`, `list_categories`, `tag_font`.
 
 ## Commands
 
 | Command | |
 | --- | --- |
-| `fontetto search [words] [-c category] [-l licence] [-s sort] [-n N]` | Find fonts by name words, category, licence, author (`--author`), or your tags (`--tag`). |
-| `fontetto info <font>` | Everything the provider knows — see below. |
-| `fontetto preview <font>… [-t text]` | Render previews (optionally of your own text) to PNG files. |
-| `fontetto get <font>… [-o dir]` | Download, unpack, write `font-face.css` and `fontetto.json`. |
+| `fontetto search [words] [-c category] [-l licence] [-s sort] [-n N] [--any]` | Find fonts by name words (all, or `--any` of them), category, licence, author (`--author`), or your tags (`--tag`). |
+| `fontetto info <font>… [--files]` | Everything the provider knows — see below. `--files` adds what the font files can set. |
+| `fontetto preview <font>… [-t text]` | One numbered contact-sheet PNG of all the fonts, in your own text. |
+| `fontetto get <font>… [-o dir]` | Download, unpack, write `font-face.css` and `fontetto.json`; print a paste-ready snippet. |
 | `fontetto categories` | The category tree. |
 | `fontetto tag <font> <tag>… [-r tag]` · `fontetto tags` | Your own tags. |
 | `fontetto mcp` | Run as an MCP server on stdio. |
@@ -98,9 +122,11 @@ or explicit kinds.
 | glyph count, size, added/updated dates, old versions, showcase image | |
 | bitmap pixel size | pixel fonts list their native size (use multiples, anti-aliasing off) |
 
-After `get`, fontetto reads the font files themselves (OpenType `name`, `OS/2`, `head`, `maxp`) for the
-true family name, weight, italic, width (→ `font-stretch`) and any embedded licence (e.g. the OFL), so the CSS
-is right even when file names are not. The same face shipped as WOFF2/WOFF/OTF/TTF becomes one `@font-face`
+With `info --files` (before installing) and `get`, fontetto reads the font files themselves (OpenType `name`,
+`OS/2`, `head`, `maxp`, `post`, `cmap`, `glyf`) for the true family name, weight, italic, width
+(→ `font-stretch`), fixed pitch, case (does it have real lowercase, judged by drawn heights, not just
+glyph slots), digits, script coverage and any embedded licence (e.g. the OFL or CC BY-SA), so the CSS is right
+even when file names are not. The same face shipped as WOFF2/WOFF/OTF/TTF becomes one `@font-face`
 with every format, best first. `fontetto.json` records where the font came from and under which licence.
 
 ## Your own tags
@@ -154,7 +180,8 @@ src/
   providers/
     index.ts           registry
     dafont/            categories · parse (pure HTML → data) · provider (URLs, filters)
-  lib/                 http (cache, politeness) · zip · sfnt (font tables) · faces · css · html · licence
+  lib/                 http (cache, politeness) · zip · sfnt, cmap, traits (font files) · faces · css
+                       png, sheet (contact sheets) · html · licence
 skills/fontetto/       the agent skill
 test/                  fixtures, builders for synthetic zips and fonts, tests
 ```

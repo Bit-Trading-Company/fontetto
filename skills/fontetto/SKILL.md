@@ -1,6 +1,6 @@
 ---
 name: fontetto
-description: Find, preview and install fonts for a design. Use whenever a design, page, logo, poster, game or brand needs a font or typeface — search by style (handwritten, script, brush, retro, pixel, stencil, horror, sci-fi, serif, sans, monospace…) and licence, render previews with the real copy, then download the files and get ready-to-use @font-face CSS. Covers ~100k fonts from dafont.com and flags which are free for commercial use.
+description: Find, preview and install fonts for a design. Use whenever a page, letter, document, logo, poster, game or brand needs a font, or a request describes how text should look ("in a pixel font", "handwritten heading", "8-bit cursive signature", "retro", "hindi-style", "monospace"…) — search ~100k dafont.com fonts by style and licence, check what each font can set, compare candidates in one image, then install with ready-to-use @font-face CSS. Flags which fonts are free for commercial use.
 ---
 
 # fontetto — fonts for designs
@@ -15,34 +15,41 @@ If `${CLAUDE_PLUGIN_ROOT}` above was not replaced with a path, use `fontetto` if
 
 ## Workflow
 
-1. **Translate the brief** into a category, optional name words, and a licence filter. Client, brand or any commercial work → `-l commercial`.
-2. **Search** — one compact line per font, best candidates first:
+Aim for a handful of calls: one search per element, one check, one install.
+
+1. **Translate the brief** into a category, style words, and a licence filter. Client, brand or any commercial work → `-l commercial`.
+2. **Search once per element.** Several style words? Pass them all with `--any` — one call, merged and de-duplicated:
    ```bash
    fontetto search -c handwritten -l commercial -n 8
-   fontetto search retro -c "fancy/retro" -l commercial      # words match font names only
+   fontetto search script cursive handwriting -c pixel --any -n 8   # words match font names only
    ```
    Columns: `slug  Name — Author · Category · licence ✓/✗/? · downloads · files · accents`. Downloads are a decent quality signal. Need é/ü/ñ? Add `--accents`.
-3. **Look before choosing.** Render 2–4 candidates with the actual copy, then Read the PNGs:
+3. **Check the shortlist with text first** — it reads the font files (cached, nothing installed):
    ```bash
-   fontetto preview baltime thesignature -t "Acme Coffee Co."
+   fontetto info vcr-osd-mono polix-mono --files
    ```
-4. **Check the licence** of the pick. `✓` = free for commercial use. `✗` = personal use only (or paid). `?` = the author's note decides — run `fontetto info <slug>` and read the note (add `--full` for all of it).
-5. **Install** into the project's font folder (match the project: `public/fonts`, `src/assets/fonts`, …):
+   `reads` flags what previews would otherwise reveal: `NO LOWERCASE` (capitals or one unicase form — wrong for body text), `no digits`, `monospace`, and the scripts actually covered (`latin-1`, `cyrillic`, `devanagari`…). `embedded` shows a licence written into the file itself.
+4. **Preview only when the choice is about the look** (mood, personality, "does it read as X?"). One call renders every candidate in the real copy as **one numbered sheet** — read that single image:
    ```bash
-   fontetto get baltime -o public/fonts
+   fontetto preview samarkan devanagarish upakarti -t "Namaste, Dear Friend"
    ```
-   This unpacks the files, reads each file's real family/weight/style/stretch, and writes `font-face.css` (one `@font-face` per face, every format) plus `fontetto.json` (source, author, licence). The output says which `font-family` to use, with a fitting fallback.
-6. **Use it**: link or `@import` the generated `font-face.css` (or copy its rules into the project's CSS), then `font-family: 'Baltime', cursive;`.
-7. **Tell the user** which font you chose, its licence (quote ✗/? cases plainly), and where the files and licence docs are.
+   Skip it when category, licence, popularity and `--files` already decide.
+5. **Check the licence.** `✓` = free for commercial use. `✗` = personal use only (or paid). `?` = the author's note decides — read it in `info` (`--full` for all of it).
+6. **Install** into the project's font folder (`public/fonts`, `src/assets/fonts`, …):
+   ```bash
+   fontetto get vcr-osd-mono -o public/fonts
+   ```
+   The output is paste-ready: a `<link>` tag for the generated `font-face.css` (path relative to where you ran it — adjust for the page) and the `font-family` rule with a fitting fallback (plus the native pixel size for bitmap fonts). Pages must be served over http(s); fonts do not load into `data:` URLs.
+7. **Tell the user** which fonts you chose, their licences (quote ✗/? cases plainly, and credit CC-BY fonts), and where the files are.
 
 ## Commands
 
 | Command | Purpose |
 | --- | --- |
-| `search [words] [-c cat] [-l lic] [-s sort] [-n N] [-p page]` | Find fonts. `-l commercial` (open + 100% free), `open`, or kinds `open,free,personal,donationware,shareware,demo`. `-s popular\|newest\|name`. `--author <handle>` lists an author's fonts. |
-| `info <font>…` | Licence + author note, styles, glyph count, dates, preview and page URLs. |
-| `preview <font>… [-t text] [--styles N] [--size xs\|s\|m\|l]` | Saves PNGs and prints their paths. |
-| `get <font>… [-o dir]` | Download, unpack, write `font-face.css` + `fontetto.json`. |
+| `search [words] [-c cat] [-l lic] [-s sort] [-n N] [--any]` | Find fonts. `--any`: match any of the words. `-l commercial` (open + 100% free), `open`, or kinds `open,free,personal,donationware,shareware,demo`. `-s popular\|newest\|name`. `--author <handle>` lists an author's fonts. |
+| `info <font>… [--files]` | Licence + author note, styles, glyphs, dates. `--files`: case, digits, scripts, monospace, CSS family. |
+| `preview <font>… [-t text] [--styles N]` | One numbered contact sheet PNG of all of them. |
+| `get <font>… [-o dir]` | Install: files, `font-face.css`, `fontetto.json`, paste-ready snippet. |
 | `categories` | The full category tree with ids. |
 | `tag <font> <tag>… [-r tag]` · `tags` · `search --tag <t>` | Your own tags (e.g. `brand-acme`, `approved`) — searchable later, offline. |
 

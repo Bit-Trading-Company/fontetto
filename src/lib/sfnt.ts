@@ -3,6 +3,9 @@
  * plus the licence and designer fields many fonts embed.
  */
 
+import { readCmap } from './cmap.ts';
+import { readTraits, type FontTraits } from './traits.ts';
+
 export interface FontFileInfo {
   family: string;
   subfamily: string;
@@ -18,6 +21,10 @@ export interface FontFileInfo {
   italic: boolean;
   /** CSS font-stretch keyword, from the OS/2 width class. */
   stretch: string;
+  /** Every glyph has the same advance width (post.isFixedPitch). */
+  monospace: boolean;
+  /** Case, digits and scripts, from the character map. */
+  traits?: FontTraits;
   glyphs?: number;
 }
 
@@ -60,6 +67,10 @@ export function readFontFile(buf: Uint8Array): FontFileInfo | null {
   const os2 = tables.get('OS/2');
   const head = tables.get('head');
   const maxp = tables.get('maxp');
+  const post = tables.get('post');
+  const cmapAt = tables.get('cmap');
+  const cmap = cmapAt !== undefined ? readCmap(view, cmapAt) : null;
+  const lowerToUpper = cmap ? caseRatio(view, tables, os2, head, cmap.lookup) : undefined;
 
   const family = names.typoFamily ?? names.family ?? names.fullName ?? 'Unknown';
   const subfamily = names.typoSubfamily ?? names.subfamily ?? 'Regular';
@@ -89,8 +100,38 @@ export function readFontFile(buf: Uint8Array): FontFileInfo | null {
     weight,
     italic,
     stretch,
+    monospace: post !== undefined && view.getUint32(post + 12) !== 0,
     glyphs: maxp !== undefined ? view.getUint16(maxp + 4) : undefined,
+    ...(cmap ? { traits: readTraits(cmap, lowerToUpper) } : {}),
   };
+}
+
+/**
+ * Height of lowercase x against capital X. Real lowercase is ~0.5–0.75; a font
+ * that draws capitals in the lowercase slots comes out near 1. Uses the drawn
+ * outlines (TrueType glyf) when present, else the declared OS/2 heights.
+ */
+function caseRatio(view: DataView, tables: Map<string, number>, os2: number | undefined, head: number | undefined, lookup: (cp: number) => number): number | undefined {
+  const glyf = tables.get('glyf');
+  const loca = tables.get('loca');
+  if (glyf !== undefined && loca !== undefined && head !== undefined) {
+    const long = view.getInt16(head + 50) === 1;
+    const top = (gid: number): number | undefined => {
+      if (!gid) return undefined;
+      const at = long ? view.getUint32(loca + gid * 4) : view.getUint16(loca + gid * 2) * 2;
+      const next = long ? view.getUint32(loca + gid * 4 + 4) : view.getUint16(loca + gid * 2 + 2) * 2;
+      return next > at ? view.getInt16(glyf + at + 8) : undefined; // yMax
+    };
+    const lower = top(lookup(0x78)) ?? top(lookup(0x7a));
+    const upper = top(lookup(0x58)) ?? top(lookup(0x48));
+    if (lower && upper && upper > 0) return lower / upper;
+  }
+  if (os2 !== undefined && view.getUint16(os2) >= 2) {
+    const xHeight = view.getInt16(os2 + 86);
+    const capHeight = view.getInt16(os2 + 88);
+    if (xHeight > 0 && capHeight > 0) return xHeight / capHeight;
+  }
+  return undefined;
 }
 
 function readNames(buf: Uint8Array, view: DataView, offset: number | undefined): Partial<Record<NameKey, string>> {

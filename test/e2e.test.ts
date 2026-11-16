@@ -6,17 +6,22 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { makeFont, makeZip } from './helpers/build.ts';
-import { seededEnv } from './helpers/fixtures.ts';
+import { fixture, fixtureBytes, seededEnv } from './helpers/fixtures.ts';
+import { parseFontPage } from '../src/providers/dafont/parse.ts';
 
 const CLI = path.join(import.meta.dirname, '..', 'src', 'cli.ts');
 const D = 'https://www.dafont.com';
 
+const textPage = parseFontPage(fixture('font-coolvetica-text.html'), 'coolvetica');
+
 const env = seededEnv({
+  [`${D}/coolvetica.font?text=Brand+Name&psize=l`]: 'font-coolvetica-text.html',
+  [textPage.styles[0]!.preview]: fixtureBytes('preview-palette.png'),
   [`${D}/theme.php?cat=603&fpp=25&sort=pop&l[]=10&l[]=1`]: 'theme-handwritten.html',
   [`${D}/search.php?q=retro&fpp=200`]: 'search-retro.html',
   [`${D}/bebas-neue.font`]: 'font-bebas-neue.html',
   'https://dl.dafont.com/dl/?f=bebas_neue': makeZip([
-    { name: 'BebasNeue-Regular.otf', data: makeFont({ family: 'Bebas Neue', license: 'SIL OFL 1.1' }), deflate: true },
+    { name: 'BebasNeue-Regular.otf', data: makeFont({ family: 'Bebas Neue', license: 'SIL OFL 1.1', chars: { lower: 'capitals' } }), deflate: true },
     { name: 'BebasNeue-Regular.woff2', data: 'wOF2' },
     { name: 'OFL.txt', data: 'SIL Open Font License' },
     { name: '__MACOSX/._BebasNeue-Regular.otf', data: 'junk' },
@@ -58,6 +63,23 @@ test('info', () => {
   assert.match(out, /more: --author dharma-type\.d\d+/);
 });
 
+test('info --files: what the font files can set, without installing', () => {
+  const { out, code, err } = run('info', 'bebas-neue', '--files');
+  assert.equal(code, 0, err);
+  assert.match(out, /^reads +NO LOWERCASE · latin$/m);
+  assert.match(out, /^family +font-family: 'Bebas Neue', sans-serif$/m);
+  assert.match(out, /^embedded +SIL OFL 1\.1$/m);
+});
+
+test('preview: one numbered sheet for the request', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fontetto-sheet-'));
+  const { out, code, err } = run('preview', 'coolvetica', '-t', 'Brand Name', '-o', dir);
+  assert.equal(code, 0, err);
+  assert.match(out, /^sheet +.+preview-coolvetica-brand-name\.png$/m);
+  assert.match(out, /^ 1  dafont:coolvetica  Coolvetica · personal \?$/m);
+  assert.deepEqual(fs.readdirSync(dir), ['preview-coolvetica-brand-name.png']);
+});
+
 test('get: unpack, read the files, write CSS and provenance', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fontetto-get-'));
   const { out, code, err } = run('get', 'bebas-neue', '-o', dir, '--json');
@@ -71,6 +93,17 @@ test('get: unpack, read the files, write CSS and provenance', () => {
   const meta = JSON.parse(fs.readFileSync(path.join(r.dir, 'fontetto.json'), 'utf8'));
   assert.equal(meta.license.kind, 'open');
   assert.equal(meta.embeddedLicense.text, 'SIL OFL 1.1');
+  assert.equal(r.traits.case, 'no-lowercase');
+  assert.equal(r.snippet.link, `<link rel="stylesheet" href="${r.css}">`);
+  assert.equal(r.snippet.rule, "font-family: 'Bebas Neue', sans-serif;");
+});
+
+test('get: text output is paste-ready', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fontetto-get-'));
+  const { out } = run('get', 'bebas-neue', '-o', dir);
+  assert.match(out, /^link +<link rel="stylesheet" href=".+\/bebas-neue\/font-face\.css">$/m);
+  assert.match(out, /^use +font-family: 'Bebas Neue', sans-serif;$/m);
+  assert.match(out, /^reads +NO LOWERCASE/m);
 });
 
 test('tags round-trip and are searchable', () => {
@@ -110,7 +143,7 @@ test('mcp: initialize, list tools, call a tool', async () => {
 
   const byId = Object.fromEntries(lines.map((l) => JSON.parse(l)).map((m) => [m.id, m]));
   assert.equal(byId[1].result.serverInfo.name, 'fontetto');
-  assert.deepEqual(byId[2].result.tools.map((t: { name: string }) => t.name), ['search_fonts', 'font_info', 'preview_font', 'get_font', 'list_categories', 'tag_font']);
+  assert.deepEqual(byId[2].result.tools.map((t: { name: string }) => t.name), ['search_fonts', 'font_info', 'preview_fonts', 'get_font', 'list_categories', 'tag_font']);
   assert.match(byId[3].result.content[0].text, /^3 fonts from dafont/);
   assert.equal(byId[4].error.code, -32602);
   assert.equal(byId[5].error.code, -32601);

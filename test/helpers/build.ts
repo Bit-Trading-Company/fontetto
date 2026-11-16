@@ -46,9 +46,35 @@ export interface FakeFont {
   italic?: boolean;
   glyphs?: number;
   license?: string;
+  monospace?: boolean;
+  /** Character map: which letters exist and how lowercase is drawn. */
+  chars?: { lower?: 'real' | 'capitals' | 'same-glyphs' | 'none'; digits?: boolean; extra?: number[] };
 }
 
-/** A minimal OpenType file with name, OS/2, head and maxp tables. */
+/** cmap with one format-4 segment per code point (plenty for tests). */
+function makeCmap(map: Map<number, number>): Buffer {
+  const cps = [...map.keys()].sort((a, b) => a - b);
+  const segs = [...cps, 0xffff];
+  const n = segs.length;
+  const sub = Buffer.alloc(16 + n * 8);
+  sub.writeUInt16BE(4, 0);
+  sub.writeUInt16BE(sub.length, 2);
+  sub.writeUInt16BE(n * 2, 6);
+  segs.forEach((cp, i) => {
+    sub.writeUInt16BE(cp, 14 + i * 2); // end
+    sub.writeUInt16BE(cp, 16 + n * 2 + i * 2); // start
+    const delta = cp === 0xffff ? 1 : ((map.get(cp)! - cp) & 0xffff);
+    sub.writeUInt16BE(delta, 16 + n * 4 + i * 2);
+  });
+  const head = Buffer.alloc(12);
+  head.writeUInt16BE(1, 2);
+  head.writeUInt16BE(3, 4);
+  head.writeUInt16BE(1, 6);
+  head.writeUInt32BE(12, 8);
+  return Buffer.concat([head, sub]);
+}
+
+/** A minimal OpenType file with name, OS/2, head, maxp, post and cmap tables. */
 export function makeFont(f: FakeFont): Uint8Array {
   const names: [number, string][] = [[1, f.family], [2, f.subfamily ?? 'Regular']];
   if (f.typoFamily) names.push([16, f.typoFamily]);
@@ -69,14 +95,28 @@ export function makeFont(f: FakeFont): Uint8Array {
     pos += strings[i]!.length;
   });
   const os2 = Buffer.alloc(96);
+  os2.writeUInt16BE(2, 0); // version 2: has x-height and cap height
+  os2.writeInt16BE(f.chars?.lower === 'capitals' ? 700 : 500, 86);
+  os2.writeInt16BE(700, 88);
   os2.writeUInt16BE(f.weight ?? 400, 4);
   os2.writeUInt16BE(f.width ?? 5, 6);
   os2.writeUInt16BE(f.italic ? 1 : 0x40, 62);
   const head = Buffer.alloc(54);
   const maxp = Buffer.alloc(6);
   maxp.writeUInt16BE(f.glyphs ?? 100, 4);
+  const post = Buffer.alloc(32);
+  post.writeUInt32BE(0x00030000, 0);
+  post.writeUInt32BE(f.monospace ? 1 : 0, 12);
 
-  const tables: [string, Buffer][] = [['OS/2', os2], ['head', head], ['maxp', maxp], ['name', Buffer.concat([name, ...strings])]];
+  const map = new Map<number, number>();
+  let gid = 1;
+  for (let cp = 0x41; cp <= 0x5a; cp++) map.set(cp, gid++);
+  const lower = f.chars?.lower ?? 'real';
+  if (lower !== 'none') for (let cp = 0x61; cp <= 0x7a; cp++) map.set(cp, lower === 'same-glyphs' ? map.get(cp - 32)! : gid++);
+  if (f.chars?.digits ?? true) for (let cp = 0x30; cp <= 0x39; cp++) map.set(cp, gid++);
+  for (const cp of f.chars?.extra ?? []) map.set(cp, gid++);
+
+  const tables: [string, Buffer][] = [['OS/2', os2], ['cmap', makeCmap(map)], ['head', head], ['maxp', maxp], ['post', post], ['name', Buffer.concat([name, ...strings])]];
   const header = Buffer.alloc(12 + tables.length * 16);
   header.write('OTTO', 0, 'latin1');
   header.writeUInt16BE(tables.length, 4);

@@ -24,6 +24,7 @@ export interface Face {
   weight: number;
   italic: boolean;
   stretch: string;
+  monospace: boolean;
   /** Files for this face, best web format first. */
   files: string[];
   glyphs?: number;
@@ -54,6 +55,7 @@ export function buildFaces(files: FontFile[], fallbackFamily: string): Face[] {
       weight: info?.weight ?? weightFromName(stem),
       italic: info?.italic ?? /italic|oblique/i.test(stem),
       stretch: info?.stretch ?? 'normal',
+      monospace: info?.monospace ?? false,
       files: group.map((g) => g.path).sort((a, b) => rankFormat(a) - rankFormat(b)),
       ...(info?.glyphs ? { glyphs: info.glyphs } : {}),
     };
