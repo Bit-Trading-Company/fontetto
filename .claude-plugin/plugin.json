@@ -1,0 +1,10 @@
+{
+  "name": "fontetto",
+  "version": "0.1.0",
+  "description": "Fonts for design agents: search dafont by style and licence, preview with your own text, install with ready-to-use @font-face CSS.",
+  "author": { "name": "Bit Trading Company", "url": "https://bit-trading-company.com" },
+  "homepage": "https://github.com/Bit-Trading-Company/fontetto",
+  "repository": "https://github.com/Bit-Trading-Company/fontetto",
+  "license": "MIT",
+  "keywords": ["fonts", "typography", "dafont", "font-face", "design"]
+}

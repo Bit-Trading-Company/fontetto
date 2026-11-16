@@ -1,0 +1,3 @@
+* text=auto eol=lf
+# Saved provider pages: keep their original bytes and encoding.
+test/fixtures/** -text linguist-vendored

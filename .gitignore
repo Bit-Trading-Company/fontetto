@@ -1,0 +1,7 @@
+node_modules
+dist
+.DS_Store
+*.log
+*.tgz
+# fonts fetched while trying the tool
+/fonts

@@ -1,0 +1,53 @@
+{
+  "name": "fontetto",
+  "version": "0.1.0",
+  "description": "Fonts for design agents: search third-party font providers (dafont first), read licenses, download, and get ready-to-use @font-face CSS.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "fontetto": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "skills"
+  ],
+  "scripts": {
+    "fontetto": "node src/cli.ts",
+    "test": "node --test test/*.test.ts",
+    "test:live": "FONTETTO_LIVE=1 node --test test/live.test.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "fixtures": "node scripts/fixtures.ts",
+    "prepare": "tsc -p tsconfig.build.json"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "keywords": [
+    "fonts",
+    "typography",
+    "dafont",
+    "font-face",
+    "design",
+    "agent",
+    "skill",
+    "mcp",
+    "claude"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Bit-Trading-Company/fontetto.git"
+  },
+  "homepage": "https://github.com/Bit-Trading-Company/fontetto#readme",
+  "author": "Bit Trading Company (https://bit-trading-company.com)"
+}
